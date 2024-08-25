@@ -18,12 +18,12 @@ const MESSAGE_BUFFER_SIZE: usize = 1024;
 const PUBLISH_BYTE: u8 = 0;
 const SUBSCRIBE_BYTE: u8 = 1;
 
-impl From<u8> for MessageType {
-    fn from(byte: u8) -> Self {
+impl MessageType {
+    fn from_byte(byte: u8) -> Option<Self> {
         match byte {
-            PUBLISH_BYTE => Self::Publish,
-            SUBSCRIBE_BYTE => Self::Subscribe,
-            _ => panic!("Invalid message type"),
+            PUBLISH_BYTE => Some(Self::Publish),
+            SUBSCRIBE_BYTE => Some(Self::Subscribe),
+            _ => None,
         }
     }
 }
@@ -113,11 +113,19 @@ async fn handle_connection(state: SafeSharedState, (mut socket, addr): (TcpStrea
             break;
         }
 
-        let message_type = MessageType::from(buf[0]);
+        let message_type = MessageType::from_byte(buf[0]);
+
+        if message_type.is_none() {
+            log::error!(
+                "Invalid message type received: {:?}",
+                std::str::from_utf8(&buf[1..buf_len])
+            );
+            continue;
+        }
 
         log::info!("Received connection of: {:?}", message_type);
 
-        match message_type {
+        match message_type.unwrap() {
             MessageType::Publish => handle_publish(&state, &buf[1..buf_len]).await,
             MessageType::Subscribe => {
                 handle_subscribe(&state, addr, socket).await;
@@ -130,6 +138,7 @@ async fn handle_connection(state: SafeSharedState, (mut socket, addr): (TcpStrea
 async fn handle_publish(state: &SafeSharedState, message: &[u8]) {
     let state = state.lock().await;
     let mut queue = state.queue.lock().await;
+    log::debug!("Publishing message: {:?}", std::str::from_utf8(message));
     queue.push_back(message.to_vec());
 }
 
